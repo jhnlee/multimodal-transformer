@@ -7,11 +7,15 @@ logger = logging.getLogger(__name__)
 
 
 class CrossmodalTransformerEncoder(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, dropout, n_layer):
+    def __init__(
+        self, d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout, n_layer
+    ):
         super(CrossmodalTransformerEncoder, self).__init__()
         self.layers = nn.ModuleList([])
         for layer in range(n_layer):
-            new_layer = TransformerDecoderBlock(d_model, nhead, dim_feedforward, dropout)
+            new_layer = TransformerDecoderBlock(
+                d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout
+            )
             self.layers.append(new_layer)
 
     def forward(self, src, tgt):
@@ -21,11 +25,15 @@ class CrossmodalTransformerEncoder(nn.Module):
 
 
 class TransformerEncoder(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, dropout, n_layer):
+    def __init__(
+        self, d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout, n_layer
+    ):
         super(TransformerEncoder, self).__init__()
         self.layers = nn.ModuleList([])
         for layer in range(n_layer):
-            new_layer = TransformerEncoderBlock(d_model, nhead, dim_feedforward, dropout)
+            new_layer = TransformerEncoderBlock(
+                d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout
+            )
             self.layers.append(new_layer)
 
     def forward(self, src):
@@ -35,17 +43,19 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerEncoderBlock(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, dropout):
+    def __init__(self, d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout):
         """
         Args:
             d_model: the number of expected features in the input (required).
             nhead: the number of heads in the multiheadattention models (required).
             dim_feedforward: the dimension of the feedforward network model (required).
-            dropout: the dropout value (required).
+            attn_dropout: the dropout value for multihead attention (required).
+            res_dropout: the dropout value for residual connection (required).
+            relu_dropout: the dropout value for relu (required).
         """
         super(TransformerEncoderBlock, self).__init__()
-        self.transformer = TransformerBlock(d_model, nhead, dropout)
-        self.feedforward = FeedForwardBlock(d_model, dim_feedforward, dropout)
+        self.transformer = TransformerBlock(d_model, nhead, attn_dropout, res_dropout)
+        self.feedforward = FeedForwardBlock(d_model, dim_feedforward, res_dropout, relu_dropout)
 
     def forward(self, x, x_key_padding_mask=None, x_attn_mask=None):
         """
@@ -57,18 +67,20 @@ class TransformerEncoderBlock(nn.Module):
 
 
 class TransformerDecoderBlock(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, dropout):
+    def __init__(self, d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout):
         """
         Args:
             d_model: the number of expected features in the input (required).
             nhead: the number of heads in the multiheadattention models (required).
             dim_feedforward: the dimension of the feedforward network model (required).
-            dropout: the dropout value (required).
+            attn_dropout: the dropout value for multihead attention (required).
+            res_dropout: the dropout value for residual connection (required).
+            relu_dropout: the dropout value for relu (required).
         """
         super(TransformerDecoderBlock, self).__init__()
-        # self.transformer1 = TransformerBlock(d_model, nhead, dropout)
-        self.transformer2 = TransformerBlock(d_model, nhead, dropout)
-        self.feedforward = FeedForwardBlock(d_model, dim_feedforward, dropout)
+        # self.transformer1 = TransformerBlock(d_model, nhead, attn_dropout, res_dropout)
+        self.transformer2 = TransformerBlock(d_model, nhead, attn_dropout, res_dropout)
+        self.feedforward = FeedForwardBlock(d_model, dim_feedforward, res_dropout, relu_dropout)
 
     def forward(
         self,
@@ -96,32 +108,32 @@ class TransformerDecoderBlock(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, nhead, dropout):
+    def __init__(self, d_model, nhead, attn_dropout, res_dropout):
         super(TransformerBlock, self).__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        self.dropout = nn.Dropout(dropout)
+        self.res_dropout = res_dropout
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=attn_dropout)
         self.layernorm = nn.LayerNorm(d_model)
 
     def forward(self, query, key, value, key_padding_mask=None, attn_mask=None):
         x = self.self_attn(
             query, key, value, key_padding_mask=key_padding_mask, attn_mask=attn_mask
         )[0]
-        x = query + self.dropout(x)
+        x = query + F.dropout(x, self.res_dropout, self.training)
         x = self.layernorm(x)
         return x
 
 
 class FeedForwardBlock(nn.Module):
-    def __init__(self, d_model, dim_feedforward, dropout):
+    def __init__(self, d_model, dim_feedforward, res_dropout, relu_dropout):
         super(FeedForwardBlock, self).__init__()
+        self.relu_dropout = relu_dropout
+        self.res_dropout = res_dropout
         self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.dropout1 = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
-        self.dropout2 = nn.Dropout(dropout)
         self.layernorm = nn.LayerNorm(d_model)
 
     def forward(self, x):
-        x2 = self.linear2(self.dropout1(F.relu(self.linear1(x))))
-        x = F.relu(x + self.dropout2(x2))
+        x2 = self.linear2(F.dropout(F.relu(self.linear1(x)), self.relu_dropout, self.training))
+        x = F.relu(x + F.dropout(x2, self.res_dropout, self.training))
         x = self.layernorm(x)
         return x
