@@ -8,9 +8,18 @@ logger = logging.getLogger(__name__)
 
 class CrossmodalTransformerEncoder(nn.Module):
     def __init__(
-        self, d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout, n_layer
+        self,
+        d_model,
+        nhead,
+        dim_feedforward,
+        attn_dropout,
+        res_dropout,
+        relu_dropout,
+        n_layer,
+        attn_mask,
     ):
         super(CrossmodalTransformerEncoder, self).__init__()
+        self.attn_mask = attn_mask
         self.layers = nn.ModuleList([])
         for layer in range(n_layer):
             new_layer = TransformerDecoderBlock(
@@ -20,15 +29,24 @@ class CrossmodalTransformerEncoder(nn.Module):
 
     def forward(self, src, tgt):
         for layer in self.layers:
-            tgt = layer(src, tgt)
+            tgt = layer(src, tgt, src_mask=self.attn_mask)
         return tgt
 
 
 class TransformerEncoder(nn.Module):
     def __init__(
-        self, d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout, n_layer
+        self,
+        d_model,
+        nhead,
+        dim_feedforward,
+        attn_dropout,
+        res_dropout,
+        relu_dropout,
+        n_layer,
+        attn_mask,
     ):
         super(TransformerEncoder, self).__init__()
+        self.attn_mask = attn_mask
         self.layers = nn.ModuleList([])
         for layer in range(n_layer):
             new_layer = TransformerEncoderBlock(
@@ -38,7 +56,7 @@ class TransformerEncoder(nn.Module):
 
     def forward(self, src):
         for layer in self.layers:
-            src = layer(src)
+            src = layer(src, x_attn_mask=self.attn_mask)
         return src
 
 
@@ -114,10 +132,9 @@ class TransformerBlock(nn.Module):
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=attn_dropout)
         self.layernorm = nn.LayerNorm(d_model)
 
-    def forward(self, query, key, value, key_padding_mask=None, attn_mask=None):
-        x = self.self_attn(
-            query, key, value, key_padding_mask=key_padding_mask, attn_mask=attn_mask
-        )[0]
+    def forward(self, query, key, value, key_padding_mask=None, attn_mask=True):
+        mask = get_future_mask(query, key).to("cuda") if attn_mask else None
+        x = self.self_attn(query, key, value, key_padding_mask=key_padding_mask, attn_mask=mask)[0]
         x = query + F.dropout(x, self.res_dropout, self.training)
         x = self.layernorm(x)
         return x
@@ -137,3 +154,13 @@ class FeedForwardBlock(nn.Module):
         x = F.relu(x + F.dropout(x2, self.res_dropout, self.training))
         x = self.layernorm(x)
         return x
+
+
+def get_future_mask(q, k=None):
+    dim_query = q.shape[0]
+    dim_key = dim_query if k is None else k.shape[0]
+    future_mask = torch.triu(torch.ones(dim_query, dim_key), diagonal=1)
+    future_mask = future_mask.masked_fill(future_mask == 1.0, float("-inf")).masked_fill(
+        future_mask == 0.0, 1.0
+    )
+    return future_mask

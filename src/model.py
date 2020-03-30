@@ -20,9 +20,9 @@ class MULTModel(nn.Module):
         orig_d_t,
         n_head,
         n_cmlayer,
-        n_salayer,
-        d_out,
-        d_model=30,
+        n_salayer=3,
+        d_out=8,
+        d_model=40,
         emb_dropout=0.25,
         attn_dropout=0.1,
         attn_dropout_audio=0.0,
@@ -31,7 +31,7 @@ class MULTModel(nn.Module):
         res_dropout=0.1,
         out_dropout=0.0,
         max_position=128,
-        attn_mask=None,
+        attn_mask=True,
         scale_embedding=True,
     ):
         """ 
@@ -61,9 +61,9 @@ class MULTModel(nn.Module):
         combined_dim = 2 * d_model if self.partial_mode == 1 else 6 * d_model
 
         # Input Encoder (Temporal convolution layers) -> (B, orig_d, L) => (B, d, L)
-        self.vision_encoder = nn.Conv1d(orig_d_v, d_model, kernel_size=1, padding=0, bias=False)
-        self.audio_encoder = nn.Conv1d(orig_d_a, d_model, kernel_size=1, padding=0, bias=False)
-        self.text_encoder = nn.Conv1d(orig_d_t, d_model, kernel_size=1, padding=0, bias=False)
+        self.vision_encoder = nn.Conv1d(orig_d_v, d_model, kernel_size=3, padding=0, bias=False)
+        self.audio_encoder = nn.Conv1d(orig_d_a, d_model, kernel_size=5, padding=0, bias=False)
+        self.text_encoder = nn.Conv1d(orig_d_t, d_model, kernel_size=3, padding=0, bias=False)
 
         # Positional Encoder for Inputs -> (B, L) => (B, L, d)
         # Add positional encoding only at the first time (unlike the way original MULT paper did)
@@ -81,6 +81,7 @@ class MULTModel(nn.Module):
                 res_dropout,
                 relu_dropout,
                 n_cmlayer,
+                attn_mask,
             )
             self.vision_layers_with_text = CrossmodalTransformerEncoder(
                 d_model,
@@ -90,6 +91,7 @@ class MULTModel(nn.Module):
                 res_dropout,
                 relu_dropout,
                 n_cmlayer,
+                attn_mask,
             )
 
         if self.do_audio:
@@ -101,6 +103,7 @@ class MULTModel(nn.Module):
                 res_dropout,
                 relu_dropout,
                 n_cmlayer,
+                attn_mask,
             )
             self.audio_layers_with_text = CrossmodalTransformerEncoder(
                 d_model,
@@ -110,25 +113,61 @@ class MULTModel(nn.Module):
                 res_dropout,
                 relu_dropout,
                 n_cmlayer,
+                attn_mask,
             )
 
         if self.do_text:
             self.text_layers_with_vision = CrossmodalTransformerEncoder(
-                d_model, n_head, 4 * d_model, attn_dropout, res_dropout, relu_dropout, n_cmlayer
+                d_model,
+                n_head,
+                4 * d_model,
+                attn_dropout,
+                res_dropout,
+                relu_dropout,
+                n_cmlayer,
+                attn_mask,
             )
             self.text_layers_with_audio = CrossmodalTransformerEncoder(
-                d_model, n_head, 4 * d_model, attn_dropout, res_dropout, relu_dropout, n_cmlayer
+                d_model,
+                n_head,
+                4 * d_model,
+                attn_dropout,
+                res_dropout,
+                relu_dropout,
+                n_cmlayer,
+                attn_mask,
             )
 
         # Self-Attention layers -> (L, B, d)
         self.vision_layers = TransformerEncoder(
-            2 * d_model, n_head, 4 * d_model, attn_dropout, res_dropout, relu_dropout, n_salayer
+            2 * d_model,
+            n_head,
+            8 * d_model,
+            attn_dropout,
+            res_dropout,
+            relu_dropout,
+            n_salayer,
+            attn_mask,
         )
         self.audio_layers = TransformerEncoder(
-            2 * d_model, n_head, 4 * d_model, attn_dropout, res_dropout, relu_dropout, n_salayer
+            2 * d_model,
+            n_head,
+            8 * d_model,
+            attn_dropout,
+            res_dropout,
+            relu_dropout,
+            n_salayer,
+            attn_mask,
         )
         self.text_layers = TransformerEncoder(
-            2 * d_model, n_head, 4 * d_model, attn_dropout, res_dropout, relu_dropout, n_salayer
+            2 * d_model,
+            n_head,
+            8 * d_model,
+            attn_dropout,
+            res_dropout,
+            relu_dropout,
+            n_salayer,
+            attn_mask,
         )
 
         # Projection layers
@@ -164,30 +203,30 @@ class MULTModel(nn.Module):
         ]
 
         # Crossmodal Attention
-        x_whole = []
+        last_hidden = []
         if self.do_vision:
             x_vision_with_audio = self.vision_layers_with_audio(x_audio, x_vision)
             x_vision_with_text = self.vision_layers_with_text(x_text, x_vision)
             x_vision2 = torch.cat([x_vision_with_audio, x_vision_with_text], dim=2)
-            x_whole.append(self.vision_layers(x_vision2)[-1])  # take it from last time step
+            last_hidden.append(self.vision_layers(x_vision2)[-1])  # take it from last time step
 
         if self.do_audio:
             x_audio_with_vision = self.audio_layers_with_vision(x_vision, x_audio)
             x_audio_with_text = self.audio_layers_with_text(x_text, x_audio)
             x_audio2 = torch.cat([x_audio_with_vision, x_audio_with_text], dim=2)
-            x_whole.append(self.audio_layers(x_audio2)[-1])
+            last_hidden.append(self.audio_layers(x_audio2)[-1])
 
         if self.do_text:
             x_text_with_vision = self.text_layers_with_vision(x_vision, x_text)
             x_text_with_audio = self.text_layers_with_audio(x_audio, x_text)
-            x_text2 = torch.cat([x_vision_with_audio, x_vision_with_text], dim=2)
-            x_whole.append(self.text_layers(x_text2)[-1])
+            x_text2 = torch.cat([x_text_with_vision, x_text_with_audio], dim=2)
+            last_hidden.append(self.text_layers(x_text2)[-1])
 
-        x_whole = x_whole[0] if self.partial_mode else torch.cat(x_whole, dim=1)
+        last_hidden = last_hidden[0] if self.partial_mode else torch.cat(last_hidden, dim=1)
 
-        x_whole2 = F.relu(self.fc_layer1(x_whole))
-        x_whole2 = self.fc_layer2(F.dropout(x_whole, p=self.out_dropout, training=self.training))
-        x_whole = x_whole2 + x_whole
+        out = F.relu(self.fc_layer1(last_hidden))
+        out = self.fc_layer2(F.dropout(out, p=self.out_dropout, training=self.training))
+        out = out + last_hidden
 
-        out = self.out_layer(x_whole)
-        return out
+        out = self.out_layer(out)
+        return out, last_hidden
