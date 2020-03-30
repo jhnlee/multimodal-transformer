@@ -6,6 +6,8 @@ import os
 
 
 class DataSets(Dataset):
+    """ Adapted from original multimodal transformer code """
+
     def __init__(self, path, data="iemocap", split_type="train", if_align=False):
         super(DataSets, self).__init__()
         path = os.path.join(path, data + "_data.pkl" if if_align else data + "_data_noalign.pkl")
