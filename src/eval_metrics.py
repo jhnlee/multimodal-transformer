@@ -1,9 +1,12 @@
+import logging
 import torch
 import numpy as np
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics import accuracy_score, f1_score
+
+logger = logging.getLogger(__name__)
 
 
 def multiclass_acc(preds, truths):
@@ -49,14 +52,14 @@ def eval_mosei_senti(results, truths, exclude_zero=False):
     binary_truth = test_truth[non_zeros] > 0
     binary_preds = test_preds[non_zeros] > 0
 
-    print("MAE: ", mae)
-    print("Correlation Coefficient: ", corr)
-    print("mult_acc_7: ", mult_a7)
-    print("mult_acc_5: ", mult_a5)
-    print("F1 score: ", f_score)
-    print("Accuracy: ", accuracy_score(binary_truth, binary_preds))
+    logger.info("MAE: %.3f", mae)
+    logger.info("Correlation Coefficient: %.3f", corr)
+    logger.info("mult_acc_7: %.3f", mult_a7)
+    logger.info("mult_acc_5: %.3f", mult_a5)
+    logger.info("F1 score: %.3f", f_score)
+    logger.info("Accuracy: %.3f", accuracy_score(binary_truth, binary_preds))
 
-    print("-" * 50)
+    logger.info("-" * 50)
 
 
 def eval_mosi(results, truths, exclude_zero=False):
@@ -70,21 +73,21 @@ def eval_iemocap(results, truths, single=-1):
         test_truth = truths.view(-1, 4).cpu().detach().numpy()
 
         for emo_ind in range(4):
-            print(f"{emos[emo_ind]}: ")
+            logger.info(f"{emos[emo_ind]}: ")
             test_preds_i = np.argmax(test_preds[:, emo_ind], axis=1)
             test_truth_i = test_truth[:, emo_ind]
             f1 = f1_score(test_truth_i, test_preds_i, average="weighted")
             acc = accuracy_score(test_truth_i, test_preds_i)
-            print("  - F1 Score: ", f1)
-            print("  - Accuracy: ", acc)
+            logger.info("  - F1 Score: %.3f", f1)
+            logger.info("  - Accuracy: %.3f", acc)
     else:
         test_preds = results.view(-1, 2).cpu().detach().numpy()
         test_truth = truths.view(-1).cpu().detach().numpy()
 
-        print(f"{emos[single]}: ")
+        logger.info(f"{emos[single]}: ")
         test_preds_i = np.argmax(test_preds, axis=1)
         test_truth_i = test_truth
         f1 = f1_score(test_truth_i, test_preds_i, average="weighted")
         acc = accuracy_score(test_truth_i, test_preds_i)
-        print("  - F1 Score: ", f1)
-        print("  - Accuracy: ", acc)
+        logger.info("  - F1 Score: %.3f", f1)
+        logger.info("  - Accuracy: %.3f", acc)

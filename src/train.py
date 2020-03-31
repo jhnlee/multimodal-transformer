@@ -28,6 +28,8 @@ def set_seed(args):
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    if args.n_gpu > 0:
+        torch.cuda.manual_seed_all(args.seed)
 
 
 def train(args, train_dataset, eval_dataset, model):
@@ -106,7 +108,7 @@ def train(args, train_dataset, eval_dataset, model):
             global_step += 1
 
             if args.local_rank in [-1, 0] and global_step % args.logging_steps == 0:
-                logger.info("  train loss : %s", (tr_loss - logging_loss) / args.logging_steps)
+                logger.info("  train loss : %.3f", (tr_loss - logging_loss) / args.logging_steps)
                 logging_loss = tr_loss
 
         if args.local_rank in [-1, 0]:
@@ -117,8 +119,8 @@ def train(args, train_dataset, eval_dataset, model):
                 logger.info("  Saved model")
                 save_model(args, model, name=args.name)
 
-            logger.info("  val loss : %s", val_loss)
-            logger.info("  best_val loss : %s", best_val_loss)
+            logger.info("  val loss : %.3f", val_loss)
+            logger.info("  best_val loss : %.3f", best_val_loss)
 
 
 def evaluate(args, eval_dataset, model, loss_fct):
@@ -235,9 +237,7 @@ def main():
     parser.add_argument(
         "--batch_chunk", type=int, default=1, help="number of chunks per batch (default: 1)"
     )
-    parser.add_argument(
-        "--local_rank", type=int, default=-1, help="For distributed training: local_rank"
-    )
+    parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training")
     parser.add_argument(
         "--warmup_percent", default=0.1, type=float, help="Linear warmup over warmup_percent."
     )
@@ -246,7 +246,7 @@ def main():
     parser.add_argument(
         "--logging_steps", type=int, default=30, help="frequency of result logging (default: 30)"
     )
-    parser.add_argument("--seed", type=int, default=1111, help="random seed")
+    parser.add_argument("--seed", type=int, default=1234, help="random seed")
     parser.add_argument("--no_cuda", action="store_true", help="do not use cuda")
     parser.add_argument(
         "--name", type=str, default="mult", help='name of the trial (default: "mult")'
@@ -267,7 +267,7 @@ def main():
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO,
+        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
     )
     logger.warning(
         "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s",
@@ -292,9 +292,9 @@ def main():
     orig_d_t, orig_d_a, orig_d_v = train_data.get_dim()
 
     model = MULTModel(
-        do_vision=args.do_vision,
-        do_audio=args.do_audio,
-        do_text=args.do_text,
+        only_vision=args.do_vision,
+        only_audio=args.do_audio,
+        only_text=args.do_text,
         orig_d_v=orig_d_v,
         orig_d_a=orig_d_a,
         orig_d_t=orig_d_t,
@@ -309,7 +309,7 @@ def main():
         res_dropout=args.res_dropout,
         out_dropout=args.out_dropout,
         max_position=128,
-        attn_mask=False,
+        attn_mask=args.attn_mask,
         scale_embedding=True,
     ).to(args.device)
 
@@ -317,13 +317,10 @@ def main():
         torch.distributed.barrier()
 
     train(args, train_data, eval_data, model)
-    if args.local_rank not in [-1, 0]:
-        torch.distributed.barrier()
-    model = load_model(args, name=args.name).to(args.device)
-    if args.local_rank == 0:
-        torch.distributed.barrier()
-    _, preds, labels = evaluate(args, test_data, model, torch.nn.CrossEntropyLoss())
-    eval_iemocap(preds, labels)
+    if args.local_rank == -1 or torch.distributed.get_rank() == 0:
+        model = load_model(args, name=args.name).to(args.device)
+        _, preds, labels = evaluate(args, test_data, model, torch.nn.CrossEntropyLoss())
+        eval_iemocap(preds, labels)
 
 
 if __name__ == "__main__":
