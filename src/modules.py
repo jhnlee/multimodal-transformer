@@ -1,63 +1,52 @@
 import logging
+import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from fairseq.modules import SinusoidalPositionalEmbedding
 
 logger = logging.getLogger(__name__)
 
 
-class CrossmodalTransformerEncoder(nn.Module):
+class CrossmodalTransformer(nn.Module):
     def __init__(
         self,
         d_model,
         nhead,
-        dim_feedforward,
+        emb_dropout,
         attn_dropout,
         res_dropout,
         relu_dropout,
         n_layer,
         attn_mask,
+        scale_embedding=True,
     ):
-        super(CrossmodalTransformerEncoder, self).__init__()
+        super(CrossmodalTransformer, self).__init__()
         self.attn_mask = attn_mask
-        self.layers = nn.ModuleList([])
-        for layer in range(n_layer):
-            new_layer = TransformerDecoderBlock(
-                d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout
-            )
-            self.layers.append(new_layer)
-
-    def forward(self, src, tgt):
-        for layer in self.layers:
-            tgt = layer(src, tgt, src_mask=self.attn_mask)
-        return tgt
-
-
-class TransformerEncoder(nn.Module):
-    def __init__(
-        self,
-        d_model,
-        nhead,
-        dim_feedforward,
-        attn_dropout,
-        res_dropout,
-        relu_dropout,
-        n_layer,
-        attn_mask,
-    ):
-        super(TransformerEncoder, self).__init__()
-        self.attn_mask = attn_mask
+        self.emb_scale = math.sqrt(d_model) if scale_embedding else 1.0
+        self.pos = SinusoidalPositionalEmbedding(d_model, 0, init_size=128)
+        self.emb_dropout = emb_dropout
         self.layers = nn.ModuleList([])
         for layer in range(n_layer):
             new_layer = TransformerEncoderBlock(
-                d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout
+                d_model, nhead, d_model * 4, attn_dropout, res_dropout, relu_dropout
             )
             self.layers.append(new_layer)
 
-    def forward(self, src):
+    def forward(self, x_query, x_key=None):
+        # Positional Encoder for Inputs -> (B, L) => (B, L, d)
+        x_query_pos = self.pos(x_query[:, :, 0])
+        x_query = F.dropout(
+            (self.emb_scale * x_query + x_query_pos), self.emb_dropout, self.training
+        ).transpose(0, 1)
+        if x_key is not None:
+            x_key_pos = self.pos(x_key[:, :, 0])
+            x_key = F.dropout(
+                (self.emb_scale * x_key + x_key_pos), self.emb_dropout, self.training
+            ).transpose(0, 1)
         for layer in self.layers:
-            src = layer(src, x_attn_mask=self.attn_mask)
-        return src
+            x_query = layer(x_query, x_key, attn_mask=self.attn_mask)
+        return x_query
 
 
 class TransformerEncoderBlock(nn.Module):
@@ -75,52 +64,18 @@ class TransformerEncoderBlock(nn.Module):
         self.transformer = TransformerBlock(d_model, nhead, attn_dropout, res_dropout)
         self.feedforward = FeedForwardBlock(d_model, dim_feedforward, res_dropout, relu_dropout)
 
-    def forward(self, x, x_key_padding_mask=None, x_attn_mask=None):
+    def forward(self, x_query, x_key=None, x_key_padding_mask=None, attn_mask=None):
         """
         x : input of the encoder layer -> (L, B, d)
         """
-        x = self.transformer(x, x, x, key_padding_mask=x_key_padding_mask, attn_mask=x_attn_mask)
-        x = self.feedforward(x)
-        return x
-
-
-class TransformerDecoderBlock(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward, attn_dropout, res_dropout, relu_dropout):
-        """
-        Args:
-            d_model: the number of expected features in the input (required).
-            nhead: the number of heads in the multiheadattention models (required).
-            dim_feedforward: the dimension of the feedforward network model (required).
-            attn_dropout: the dropout value for multihead attention (required).
-            res_dropout: the dropout value for residual connection (required).
-            relu_dropout: the dropout value for relu (required).
-        """
-        super(TransformerDecoderBlock, self).__init__()
-        # self.transformer1 = TransformerBlock(d_model, nhead, attn_dropout, res_dropout)
-        self.transformer2 = TransformerBlock(d_model, nhead, attn_dropout, res_dropout)
-        self.feedforward = FeedForwardBlock(d_model, dim_feedforward, res_dropout, relu_dropout)
-
-    def forward(
-        self,
-        src,
-        tgt,
-        src_mask=None,
-        src_key_padding_mask=None,
-        tgt_mask=None,
-        tgt_key_padding_mask=None,
-    ):
-        """
-        src : output from the encoder layer(query) -> (L, B, d)
-        tgt : input from the decoder layer(key, value) -> (L, B, d)
-        """
-        """
-        tgt = self.transformer1(
-            tgt, tgt, tgt, key_padding_mask=tgt_key_padding_mask, attn_mask=tgt_mask
-        )
-        """
-        x = self.transformer2(
-            tgt, src, src, key_padding_mask=src_key_padding_mask, attn_mask=src_mask
-        )
+        if x_key is not None:
+            x = self.transformer(
+                x_query, x_key, x_key, key_padding_mask=x_key_padding_mask, attn_mask=attn_mask
+            )
+        else:
+            x = self.transformer(
+                x_query, x_query, x_query, key_padding_mask=x_key_padding_mask, attn_mask=attn_mask,
+            )
         x = self.feedforward(x)
         return x
 
