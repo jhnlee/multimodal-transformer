@@ -19,7 +19,6 @@ class MULTModel(nn.Module):
         orig_d_t,
         n_head,
         n_cmlayer,
-        n_salayer=3,
         d_out=8,
         d_model=40,
         emb_dropout=0.25,
@@ -52,7 +51,7 @@ class MULTModel(nn.Module):
         # Input Encoder (Temporal convolution layers) -> (B, orig_d, L) => (B, d, L)
         self.vision_encoder = nn.Conv1d(orig_d_v, d_model, kernel_size=3, padding=0, bias=False)
         self.audio_encoder = nn.Conv1d(orig_d_a, d_model, kernel_size=5, padding=0, bias=False)
-        self.text_encoder = nn.Conv1d(orig_d_t, d_model, kernel_size=1, padding=0, bias=False)
+        self.text_encoder = nn.Conv1d(orig_d_t, d_model, kernel_size=3, padding=0, bias=False)
 
         # Cross-modal Transformer layers -> (B, L, d) => (L, B, d)
         if self.do_vision:
@@ -129,7 +128,7 @@ class MULTModel(nn.Module):
             attn_dropout,
             res_dropout,
             relu_dropout,
-            n_salayer,
+            n_cmlayer,
             attn_mask,
         )
         self.audio_layers = CrossmodalTransformer(
@@ -139,7 +138,7 @@ class MULTModel(nn.Module):
             attn_dropout,
             res_dropout,
             relu_dropout,
-            n_salayer,
+            n_cmlayer,
             attn_mask,
         )
         self.text_layers = CrossmodalTransformer(
@@ -149,7 +148,7 @@ class MULTModel(nn.Module):
             attn_dropout,
             res_dropout,
             relu_dropout,
-            n_salayer,
+            n_cmlayer,
             attn_mask,
         )
 

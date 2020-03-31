@@ -36,6 +36,7 @@ class CrossmodalTransformer(nn.Module):
     def forward(self, x_query, x_key=None):
         # Positional Encoder for Inputs -> (B, L) => (B, L, d)
         x_query_pos = self.pos(x_query[:, :, 0])
+        # (B, L, d) => (L, B, d)
         x_query = F.dropout(
             (self.emb_scale * x_query + x_query_pos), self.emb_dropout, self.training
         ).transpose(0, 1)
@@ -89,9 +90,10 @@ class TransformerBlock(nn.Module):
 
     def forward(self, query, key, value, key_padding_mask=None, attn_mask=True):
         mask = get_future_mask(query, key).to("cuda") if attn_mask else None
+        # Do layernorm befor self-attention
+        query, key, value = [self.layernorm(x) for x in (query, key, value)]
         x = self.self_attn(query, key, value, key_padding_mask=key_padding_mask, attn_mask=mask)[0]
         x = query + F.dropout(x, self.res_dropout, self.training)
-        x = self.layernorm(x)
         return x
 
 
@@ -105,9 +107,10 @@ class FeedForwardBlock(nn.Module):
         self.layernorm = nn.LayerNorm(d_model)
 
     def forward(self, x):
-        x2 = self.linear2(F.dropout(F.relu(self.linear1(x)), self.relu_dropout, self.training))
-        x = F.relu(x + F.dropout(x2, self.res_dropout, self.training))
+        # Do layernorm befor feed-forward network
         x = self.layernorm(x)
+        x2 = self.linear2(F.dropout(F.relu(self.linear1(x)), self.relu_dropout, self.training))
+        x = x + F.dropout(x2, self.res_dropout, self.training)
         return x
 
 
