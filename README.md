@@ -1,6 +1,7 @@
 # Multimodal Transformer for Unaligned Multimodal Language Sequences
 Unofficial pytorch implementation for [Multimodal Transformer](https://arxiv.org/pdf/1906.00295.pdf)
-- This code is only for IEMOCAP dataset
+- This code is only for unaligned version of Multimodal Transformer in which CTC module is not used. 
+- Only [IEMOCAP](https://sail.usc.edu/iemocap/) dataset is used for experiments.    
 - Some part of code are adapted from [official code of authors](https://github.com/yaohungt/Multimodal-Transformer) and [fairseq repo](https://github.com/pytorch/fairseq)
 - Datasets are available in author's github page above
 
@@ -13,14 +14,14 @@ Unofficial pytorch implementation for [Multimodal Transformer](https://arxiv.org
 
 
 ## Run  
-for linux shellscripts   
+for linux   
 ```
 $ bash scripts/train.sh  
 ```
 
 
 ## Experiments  
-Hyperparameters reported on papaer are used     
+Hyperparameters at Appendix of [original paper(https://arxiv.org/pdf/1906.00295.pdf) are used     
    
 **Reproduction results**
 |              | Happy(acc) | Happy(f1) | Sad(acc) | Sad(f1) | Angry(acc) | Angry(f1) | Neutral(acc) | Neutral(f1) |
@@ -31,4 +32,4 @@ Hyperparameters reported on papaer are used
 ## Reference   
 - Multimodal Transformer for Unaligned Multimodal Language Sequences : https://arxiv.org/pdf/1906.00295.pdf  
 - Official Pytorch Implementation : https://github.com/yaohungt/Multimodal-Transformer   
-  - Official Fairseq Repository : https://github.com/pytorch/fairseq   
+- Official Fairseq Repository : https://github.com/pytorch/fairseq   
